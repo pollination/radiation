@@ -1,4 +1,4 @@
-from pollination.cumulative_radiation.entry import CumulativeRadiationEntryPoint
+from pollination.radiation.entry import CumulativeRadiationEntryPoint
 from queenbee.recipe.dag import DAG
 
 
