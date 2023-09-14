@@ -1,3 +1,4 @@
+"""Prepare folder DAG."""
 from pollination_dsl.dag import Inputs, GroupedDAG, task, Outputs
 from dataclasses import dataclass
 from pollination.honeybee_radiance.translate import CreateRadianceFolderGrid
@@ -14,8 +15,6 @@ from pollination.alias.inputs.north import north_input
 from pollination.alias.inputs.grid import grid_filter_input, \
     min_sensor_count_input, cpu_count
 from pollination.alias.inputs.radiancepar import rad_par_annual_input
-from pollination.alias.outputs.daylight import average_irradiance_results, \
-    cumulative_radiation_results
 
 
 @dataclass
