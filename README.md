@@ -1,24 +1,28 @@
-# Radiation
+# Radiation Express
 
-Radiation recipe for Pollination
+Radiation Express recipe for Pollination
 
-This recipe calculates average irradiance (W/m2) and cumulative radiation (kWh/m2)
+This recipe calculates average irradiance (W/m2) or cumulative radiation (kWh/m2)
 over the time period of a specified Wea.
 
 ## Limitations
 
-This recipe uses Radiance's `gendaymtx` to generate the sky instead of directly
-tracing the line of sight from sensors to the solar position.
+This recipe uses the ladybug-radiance
+[RadiationStudy](https://github.com/ladybug-tools/ladybug-radiance/blob/master/ladybug_radiance/study/radiation.py).
 
 ```console
-Gendaymtx takes a weather tape as input and produces a matrix of sky patch values
-using the Perez all weather model. If there is a sun in the description, gendaymtx
-will include its contribution in the four nearest sky patches, distributing energy
-according to centroid proximity.
-```
+Such studies of incident radiation can be used to approximate the energy that can
+be collected from photovoltaic or solar thermal systems. They are also useful
+for evaluating the impact of a building's orientation on both energy use and the
+size/cost of cooling systems. For studies of photovoltaic potential or building
+energy use impact, a sky matrix from EPW radiation should be used. For studies
+of cooling system size/cost, a sky matrix derived from the STAT file's clear sky
+radiation should be used.
 
-This means that the direct sun is diffused between several sky patches and so the
-precise line between shadow and sun for each hour is blurred. This approximation
-is fine for studies where the timestep-by-timestep irradiance values do not need
-to be exact. For accurate modeling of direct irradiance on a timestep-by-timestep
-basis, see the [irradiance](https://github.com/pollination/irradiance) recipe.
+Note that no reflections of solar energy are included in the analysis performed by
+this class. Ground reflected irradiance is crudely accounted for by means of an
+emissive "ground hemisphere," which is like the sky dome hemisphere and is derived
+from the ground reflectance that is associated with the connected sky_matrix. This
+means that including geometry that represents the ground surface will effectively
+block such crude ground reflection.
+```
