@@ -21,4 +21,4 @@ This means that the direct sun is diffused between several sky patches and so th
 precise line between shadow and sun for each hour is blurred. This approximation
 is fine for studies where the timestep-by-timestep irradiance values do not need
 to be exact. For accurate modeling of direct irradiance on a timestep-by-timestep
-basis, see the [irradiance](https://github.com/pollination/irradiance) recipe.
+basis, see the [Irradiance](https://github.com/pollination/irradiance) recipe.
