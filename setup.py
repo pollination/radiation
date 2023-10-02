@@ -44,7 +44,7 @@ def _clean_version():
 
 # normal setuptool inputs
 setuptools.setup(
-    name=name,                                     # will be used for package name
+    name=name,                                      # will be used for package name
     author='pollination',                                                 # the owner account for this package - required if pushed to Pollination
     author_email='info@pollination.solutions',
     packages=setuptools.find_namespace_packages(                            # required - that's how pollination find the package
