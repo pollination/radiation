@@ -15,17 +15,19 @@ class CumulativeRadiationPostprocess(DAG):
 
     average_irradiance = Inputs.file(
         description='A single-column matrix of average irradiance values in '
-        'ASCII format', path='avg_irr.mtx'
+        'ASCII format'
     )
 
     wea = Inputs.file(
         description='The .wea file that was used in the simulation. This will be '
-        'used to determine the duration of the analysis.', path='weather.wea'
+        'used to determine the duration of the analysis.',
+        extensions=['wea', 'epw']
     )
 
     timestep = Inputs.int(
         description='The timestep of the Wea file, which is used to to compute '
-        'cumulative radiation over the time period of the Wea.', default=1
+        'cumulative radiation over the time period of the Wea.', default=1,
+        spec={'type': 'integer', 'minimum': 1, 'maximum': 60}
     )
 
     @task(template=CumulativeRadiation)
