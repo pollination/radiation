@@ -1,21 +1,7 @@
 from pollination_dsl.dag import Inputs, DAG, task, Outputs
 from dataclasses import dataclass
-from pollination.honeybee_radiance.grid import MergeFolderData
-from pollination.honeybee_radiance.coefficient import DaylightCoefficient
 
-
-# input/output alias
-from pollination.alias.inputs.model import hbjson_model_grid_input
-from pollination.alias.inputs.wea import wea_input
-from pollination.alias.inputs.north import north_input
-from pollination.alias.inputs.grid import grid_filter_input, \
-    min_sensor_count_input, cpu_count
-from pollination.alias.inputs.radiancepar import rad_par_annual_input
-from pollination.alias.outputs.daylight import average_irradiance_results, \
-    cumulative_radiation_results
-
-from ._prepare_folder import CumulativeRadiationPrepareFolder
-from ._cumulative_radiation import CumulativeRadiationPostprocess
+from pollination.ladybug_radiance.radiation import IncidentRadiation
 
 
 @dataclass
@@ -23,12 +9,6 @@ class CumulativeRadiationEntryPoint(DAG):
     """Cumulative Radiation entry point."""
 
     # inputs
-    timestep = Inputs.int(
-        description='Input wea timestep. This value will be used to compute '
-        'cumulative radiation results.', default=1,
-        spec={'type': 'integer', 'minimum': 1, 'maximum': 60}
-    )
-
     north = Inputs.float(
         default=0,
         description='A number between -360 and 360 for the counterclockwise '
@@ -38,156 +18,99 @@ class CumulativeRadiationEntryPoint(DAG):
         alias=north_input
     )
 
-    cpu_count = Inputs.int(
-        default=50,
-        description='The maximum number of CPUs for parallel execution. This will be '
-        'used to determine the number of sensors run by each worker.',
-        spec={'type': 'integer', 'minimum': 1},
-        alias=cpu_count
+    high_sky_density = Inputs.bool(
+        description='A boolean to indicate if a sky with high density should be used.',
+        default=False
     )
 
-    min_sensor_count = Inputs.int(
-        description='The minimum number of sensors in each sensor grid after '
-        'redistributing the sensors based on cpu_count. This value takes '
-        'precedence over the cpu_count and can be used to ensure that '
-        'the parallelization does not result in generating unnecessarily small '
-        'sensor grids. The default value is set to 1, which means that the '
-        'cpu_count is always respected.', default=500,
-        spec={'type': 'integer', 'minimum': 1},
-        alias=min_sensor_count_input
+    average_irradiance = Inputs.bool(
+        description='A boolean to display the radiation results in units of average '
+        'irradiance (W/m2) over the time period instead of units of cumulative '
+        'radiation (kWh/m2).', default=False
     )
 
-    radiance_parameters = Inputs.str(
-        description='Radiance parameters for ray tracing.',
-        default='-ab 2 -ad 5000 -lw 2e-05',
-        alias=rad_par_annual_input
+    radiation_benefit = Inputs.bool(
+        description='Check to run a radiation benefit study that weighs helpful '
+        'winter-time radiation against harmful summer-time radiation.',
+        default=False
     )
 
-    grid_filter = Inputs.str(
-        description='Text for a grid identifier or a pattern to filter the sensor grids '
-        'of the model that are simulated. For instance, first_floor_* will simulate '
-        'only the sensor grids that have an identifier that starts with '
-        'first_floor_. By default, all grids in the model will be simulated.',
-        default='*',
-        alias=grid_filter_input
+    balance_temp = Inputs.float(
+        description='Number for the balance temperature in (C) around which radiation '
+        'switches from being helpful to harmful. Hours where the temperature is below '
+        'this will contribute positively to the benefit (eg. passive solar heating) '
+        'while hours above this temperature will contribute negatively (eg. increased '
+        'cooling load). This should usually be the balance temperature of the building '
+        'being studied.', default=16.,
+        spec={'type': 'number', 'maximum': 26.0, 'minimum': 2.0}
     )
 
-    sky_density = Inputs.int(
-        default=1,
-        description='The density of generated sky. This input corresponds to gendaymtx '
-        '-m option. -m 1 generates 146 patch starting with 0 for the ground and '
-        'continuing to 145 for the zenith. Increasing the -m parameter yields a higher '
-        'resolution sky using the Reinhart patch subdivision. For example, setting -m 4 '
-        'yields a sky with 2305 patches plus one patch for the ground.',
-        spec={'type': 'integer', 'minimum': 1}
+    ground_reflectance = Inputs.float(
+        description='Number between 0 and 1 for the average ground reflectance. This is '
+        'used to build an emissive ground hemisphere that influences points with an '
+        'unobstructed view to the ground.', default=0.2,
+        spec={'type': 'number', 'maximum': 1.0, 'minimum': 0}
     )
 
-    model = Inputs.file(
-        description='A Honeybee model in HBJSON file format.',
-        extensions=['json', 'hbjson', 'pkl', 'hbpkl', 'zip'],
-        alias=hbjson_model_grid_input
+    offset_dist = Inputs.float(
+        description='Number in model units for the distance to move points from '
+        'the surfaces of the input geometry.', default=0.01,
+        spec={'type': 'number', 'maximum': 1.0, 'minimum': 0.001}
     )
 
-    wea = Inputs.file(
-        description='Wea file.', extensions=['wea', 'epw'], alias=wea_input
+    run_period = Inputs.str(
+        description='Analysis period as a string. The string must be formatted as '
+        '{start-month}/{start-day} to {end-month}/{end-day} between {start-hour} and {end-hour} @{time-step} '
+        'Default is 1/1 to 12/31 between 0 and 23 @1 for the whole year.',
+        default='1/1 to 12/31 between 0 and 23 @1'
     )
 
-    @task(template=CumulativeRadiationPrepareFolder)
-    def prepare_folder_cumulative_radiation(
-        self, timestep=timestep, north=north,
-        cpu_count=cpu_count, min_sensor_count=min_sensor_count,
-        grid_filter=grid_filter, sky_density=sky_density, model=model, wea=wea
+    epw = Inputs.file(
+        description='Path to epw weather file.', extensions=['epw'], path='weather.epw'
+    )
+
+    study_mesh = Inputs.file(
+        description='Path to a JSON file for input study mesh in Ladybug Geometry '
+        'format.', path='input_geo.json'
+    )
+
+    context_mesh = Inputs.file(
+        description='Path to a JSON file for input context mesh in Ladybug Geometry '
+        'format.', path='context_geo.json', optional=True
+    )
+
+    display_context = Inputs.bool(
+        description='Boolean to note whether the context geometry should be included '
+        'in the output visualization.',
+        default=False
+    )
+
+    @task(template=IncidentRadiation)
+    def run_incident_radiation(
+        self, north=north, high_sky_density=high_sky_density,
+        average_irradiance=average_irradiance, radiation_benefit=radiation_benefit,
+        balance_temp=balance_temp, ground_reflectance=ground_reflectance,
+        offset_dist=offset_dist, run_period=run_period, epw=epw,
+        study_mesh=study_mesh, context_mesh=context_mesh,
+        display_context=display_context
     ):
         return [
             {
-                'from': CumulativeRadiationPrepareFolder()._outputs.model_folder,
-                'to': 'model'
+                'from': IncidentRadiation()._outputs.radiation_values,
+                'to': 'radiation.json'
             },
             {
-                'from': CumulativeRadiationPrepareFolder()._outputs.resources,
-                'to': 'resources'
-            },
-            {
-                'from': CumulativeRadiationPrepareFolder()._outputs.results,
-                'to': 'results'
-            },
-            {
-                'from': CumulativeRadiationPrepareFolder()._outputs.initial_results,
-                'to': 'initial_results'
-            },
-            {
-                'from': CumulativeRadiationPrepareFolder()._outputs.sensor_grids
-            },
-            {
-                'from': CumulativeRadiationPrepareFolder()._outputs.grids_info
+                'from': IncidentRadiation()._outputs.visualization_set,
+                'to': 'visualization/viz.vsf'
             }
         ]
 
-    @task(
-        template=DaylightCoefficient,
-        needs=[prepare_folder_cumulative_radiation],
-        loop=prepare_folder_cumulative_radiation._outputs.sensor_grids,
-        sub_folder='initial_results/{{item.full_id}}',  # subfolder for each grid
-        sub_paths={
-            'sky_dome': 'sky.dome',
-            'sky_matrix': 'sky.mtx',
-            'scene_file': 'scene.oct',
-            'sensor_grid': 'grid/{{item.full_id}}.pts',
-            'bsdf_folder': 'bsdf'
-            }
-    )
-    def sky_radiation_raytracing(
-        self,
-        radiance_parameters=radiance_parameters,
-        fixed_radiance_parameters='-aa 0.0 -I -c 1',
-        sensor_count='{{item.count}}',
-        sky_dome=prepare_folder_cumulative_radiation._outputs.resources,
-        sky_matrix=prepare_folder_cumulative_radiation._outputs.resources,
-        scene_file=prepare_folder_cumulative_radiation._outputs.resources,
-        sensor_grid=prepare_folder_cumulative_radiation._outputs.resources,
-        conversion='0.265 0.670 0.065',
-        output_format='a',
-        bsdf_folder=prepare_folder_cumulative_radiation._outputs.model_folder
-    ):
-        return [
-            {
-                'from': DaylightCoefficient()._outputs.result_file,
-                'to': '../{{item.name}}.res'
-            }
-        ]
-
-    @task(
-        template=MergeFolderData,
-        needs=[sky_radiation_raytracing]
-    )
-    def restructure_results(self, input_folder='initial_results', extension='res'):
-        return [
-            {
-                'from': MergeFolderData()._outputs.output_folder,
-                'to': 'results/average_irradiance'
-            }
-        ]
-
-    @task(
-        template=CumulativeRadiationPostprocess,
-        needs=[prepare_folder_cumulative_radiation, restructure_results],
-        loop=prepare_folder_cumulative_radiation._outputs.grids_info,
-        sub_paths={'average_irradiance': '{{item.full_id}}.res'}
-    )
-    def cumulative_radiation_postprocess(
-        self, grid_name='{{item.full_id}}',
-        average_irradiance=restructure_results._outputs.output_folder,
-        wea=wea, timestep=timestep
-    ):
-        pass
-
-    average_irradiance = Outputs.folder(
-        source='results/average_irradiance', description='The average irradiance in '
-        'W/m2 for each sensor over the Wea time period.',
-        alias=average_irradiance_results
+    radiation_values = Outputs.file(
+        source='radiation.json',
+        description='Hourly results for direct sun hours.'
     )
 
-    cumulative_radiation = Outputs.folder(
-        source='results/cumulative_radiation', description='The cumulative radiation '
-        'in kWh/m2 over the Wea time period.', alias=cumulative_radiation_results
+    visualization_set = Outputs.file(
+        source='visualization/viz.vsf',
+        description='Direct sun hours visualization.',
     )
